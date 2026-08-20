@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Face Login Demo</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#050509;
+  color:#fff;
+  font-family:Arial,sans-serif;
+}
+.box{
+  width:92%;
+  max-width:400px;
+  padding:25px;
+  border:1px solid #333;
+  border-radius:22px;
+  background:#111118;
+  text-align:center;
+  box-shadow:0 20px 60px #000;
+}
+h2{margin-top:0}
+video{
+  width:100%;
+  border-radius:16px;
+  background:#000;
+  transform:scaleX(-1);
+}
+button{
+  width:100%;
+  margin-top:12px;
+  padding:13px;
+  border:0;
+  border-radius:12px;
+  font-size:15px;
+  font-weight:bold;
+  cursor:pointer;
+}
+.register{
+  background:linear-gradient(135deg,#8b5cf6,#22d3ee);
+}
+.login{
+  background:linear-gradient(135deg,#22c55e,#06b6d4);
+}
+.reset{
+  background:#292933;
+  color:#aaa;
+}
+#status{
+  margin-top:15px;
+  min-height:24px;
+  color:#aaa;
+}
+.success{color:#4ade80!important}
+.error{color:#f87171!important}
+#gallery{
+  display:none;
+  margin-top:20px;
+  padding:20px;
+  border-radius:15px;
+  background:#191922;
+}
+</style>
+</head>
+
+<body>
+
+<div class="box">
+
+<h2>🔐 Face Login</h2>
+
+<video id="video" autoplay muted playsinline></video>
+
+<button class="register" id="registerBtn">
+📷 আমার মুখ সেট করুন
+</button>
+
+<button class="login" id="loginBtn">
+🔓 Face দিয়ে Login
+</button>
+
+<button class="reset" id="resetBtn">
+♻️ Face Reset
+</button>
+
+<div id="status">Model লোড হচ্ছে...</div>
+
+<div id="gallery">
+  <h3>✅ Login Successful</h3>
+  <p>Face verification সফল হয়েছে।</p>
+  <p>🔒 Private Gallery এখানে থাকবে।</p>
+</div>
+
+</div>
+
+<script>
+
+const video = document.getElementById("video");
+const statusBox = document.getElementById("status");
+const gallery = document.getElementById("gallery");
+
+let registeredFace = null;
+
+/* ---------------------------
+   STATUS
+---------------------------- */
+
+function status(text,type=""){
+  statusBox.textContent=text;
+  statusBox.className=type;
+}
+
+/* ---------------------------
+   LOAD MODEL
+---------------------------- */
+
+async function loadModels(){
+
+  try{
+
+    const MODEL_URL =
+      "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+
+    status("Camera চালু হচ্ছে...");
+
+    startCamera();
+
+  }catch(err){
+
+    console.error(err);
+
+    status(
+      "❌ Model load করা যায়নি। Internet connection check করো।",
+      "error"
+    );
+
+  }
+
+}
+
+/* ---------------------------
+   CAMERA
+---------------------------- */
+
+async function startCamera(){
+
+  try{
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:"user"
+      },
+      audio:false
+    });
+
+    video.srcObject=stream;
+
+    await video.play();
+
+    status("Camera ready ✓");
+
+  }catch(err){
+
+    console.error(err);
+
+    status(
+      "❌ Camera permission দিতে হবে।",
+      "error"
+    );
+
+  }
+
+}
+
+/* ---------------------------
+   GET FACE
+---------------------------- */
+
+async function getFace(){
+
+  if(!video.videoWidth){
+
+    status("Camera ready নয়...", "error");
+
+    return null;
+
+  }
+
+  const detection =
+    await faceapi
+      .detectSingleFace(
+        video,
+        new faceapi.TinyFaceDetectorOptions({
+          inputSize:224,
+          scoreThreshold:0.5
+        })
+      )
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+  return detection;
+
+}
+
+/* ---------------------------
+   REGISTER FACE
+---------------------------- */
+
+document.getElementById("registerBtn").onclick =
+async function(){
+
+  status("👤 মুখ খোঁজা হচ্ছে...");
+
+  const result = await getFace();
+
+  if(!result){
+
+    status(
+      "❌ মুখ পাওয়া যায়নি। ক্যামেরার সামনে মুখ রাখো।",
+      "error"
+    );
+
+    return;
+
+  }
+
+  registeredFace =
+    Array.from(result.descriptor);
+
+  localStorage.setItem(
+    "registeredFace",
+    JSON.stringify(registeredFace)
+  );
+
+  status(
+    "✅ তোমার মুখ সফলভাবে সেট হয়েছে!",
+    "success"
+  );
+
+};
+
+/* ---------------------------
+   LOGIN
+---------------------------- */
+
+document.getElementById("loginBtn").onclick =
+async function(){
+
+  const saved =
+    localStorage.getItem("registeredFace");
+
+  if(!saved){
+
+    status(
+      "⚠️ আগে 'আমার মুখ সেট করুন' চাপো।",
+      "error"
+    );
+
+    return;
+
+  }
+
+  status("🔍 Face verify হচ্ছে...");
+
+  const result = await getFace();
+
+  if(!result){
+
+    status(
+      "❌ কোনো মুখ পাওয়া যায়নি।",
+      "error"
+    );
+
+    return;
+
+  }
+
+  const stored =
+    new Float32Array(JSON.parse(saved));
+
+  const distance =
+    faceapi.euclideanDistance(
+      stored,
+      result.descriptor
+    );
+
+  console.log("Face distance:",distance);
+
+  /*
+    সাধারণত distance যত কম,
+    মুখের similarity তত বেশি।
+
+    0.50 threshold রাখা হয়েছে।
+  */
+
+  if(distance < 0.50){
+
+    status(
+      "✅ Face Verification Successful",
+      "success"
+    );
+
+    gallery.style.display="block";
+
+  }else{
+
+    status(
+      "❌ Face Verification Failed — এই মুখ অনুমোদিত নয়।",
+      "error"
+    );
+
+    gallery.style.display="none";
+
+  }
+
+};
+
+/* ---------------------------
+   RESET
+---------------------------- */
+
+document.getElementById("resetBtn").onclick =
+function(){
+
+  localStorage.removeItem("registeredFace");
+
+  registeredFace=null;
+
+  gallery.style.display="none";
+
+  status(
+    "♻️ Face registration মুছে ফেলা হয়েছে।"
+  );
+
+};
+
+/* ---------------------------
+   LOAD SAVED FACE
+---------------------------- */
+
+const saved =
+localStorage.getItem("registeredFace");
+
+if(saved){
+
+  registeredFace =
+    JSON.parse(saved);
+
+  status(
+    "🔐 Registered face পাওয়া গেছে। Login করতে পারো।"
+  );
+
+}
+
+/* START */
+
+loadModels();
+
+</script>
+
+</body>
+</html>
