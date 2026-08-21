@@ -92,16 +92,6 @@
     animation:ringPulse 1.6s ease-in-out infinite;
   }
   @keyframes ringPulse{0%,100%{opacity:0.45;}50%{opacity:1;}}
-  #faceUploadWrap{display:none; margin-bottom:14px;}
-  #faceUploadWrap.show{display:block;}
-  #faceFileInput{display:none;}
-  #faceUploadBtn{
-    width:100%; padding:13px; border-radius:14px; border:1px dashed var(--glass-brd);
-    background:rgba(255,255,255,0.03); color:var(--sub); font-size:13px; cursor:pointer; font-family:inherit;
-    margin-bottom:10px;
-  }
-  #facePreviewRow{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;}
-  #facePreviewRow img{width:44px; height:44px; border-radius:8px; object-fit:cover; border:1px solid var(--glass-brd);}
   #faceActionBtn{
     width:100%; padding:14px; border:none; border-radius:14px; font-size:15px; font-weight:600;
     background:linear-gradient(135deg,var(--violet),var(--cyan)); color:#0a0a0a; cursor:pointer; font-family:inherit;
@@ -436,12 +426,6 @@
     <div id="faceStep">
       <div id="faceStatus">মডেল লোড হচ্ছে...</div>
 
-      <div id="faceUploadWrap">
-        <input type="file" id="faceFileInput" accept="image/*" multiple>
-        <button id="faceUploadBtn" type="button">📸 কমপক্ষে ৩টা অ্যাঙ্গেলের ছবি বাছাই করো</button>
-        <div id="facePreviewRow"></div>
-      </div>
-
       <div id="faceVideoWrap">
         <video id="faceVideo" autoplay playsinline muted></video>
         <div id="faceScanRing"></div>
@@ -684,84 +668,7 @@ async function startFaceStep(){
   }
 }
 
-// ---------- FACE REGISTRATION (multi-angle photos) ----------
-function beginRegistration(){
-  const faceStatus = document.getElementById('faceStatus');
-  const uploadWrap = document.getElementById('faceUploadWrap');
-  const actionBtn = document.getElementById('faceActionBtn');
-  const retryBtn = document.getElementById('faceRetryBtn');
-
-  faceRegisterDescriptors = [];
-  document.getElementById('facePreviewRow').innerHTML = '';
-  faceStatus.textContent = 'বিভিন্ন অ্যাঙ্গেল থেকে তোলা কমপক্ষে ৩টা স্পষ্ট ছবি দাও (সামনে, বামে ও ডানে ঘোরানো মুখ)';
-  uploadWrap.classList.add('show');
-  document.getElementById('faceVideoWrap').classList.remove('show');
-  retryBtn.classList.remove('show');
-  actionBtn.style.display = 'block';
-  actionBtn.textContent = 'মুখ রেজিস্টার করো';
-  actionBtn.disabled = true;
-  actionBtn.onclick = handleRegisterClick;
-
-  document.getElementById('faceFileInput').value = '';
-  document.getElementById('faceFileInput').onchange = handleFaceFilesSelected;
-  document.getElementById('faceUploadBtn').onclick = () => document.getElementById('faceFileInput').click();
-}
-
-function loadImageEl(src){
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-async function handleFaceFilesSelected(){
-  const input = document.getElementById('faceFileInput');
-  const files = Array.from(input.files || []);
-  if(!files.length) return;
-
-  const faceStatus = document.getElementById('faceStatus');
-  const previewRow = document.getElementById('facePreviewRow');
-  const actionBtn = document.getElementById('faceActionBtn');
-  previewRow.innerHTML = '';
-  faceRegisterDescriptors = [];
-  actionBtn.disabled = true;
-  faceStatus.textContent = 'ছবিগুলো বিশ্লেষণ করা হচ্ছে...';
-
-  let ok = 0, fail = 0;
-  for(const file of files){
-    const url = URL.createObjectURL(file);
-    const thumb = document.createElement('img');
-    thumb.src = url;
-    previewRow.appendChild(thumb);
-    try{
-      const imgEl = await loadImageEl(url);
-      const det = await faceapi.detectSingleFace(imgEl, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks().withFaceDescriptor();
-      if(det && det.descriptor){
-        faceRegisterDescriptors.push(det.descriptor);
-        ok++;
-      } else {
-        fail++;
-      }
-    }catch(e){
-      fail++;
-    }
-  }
-
-  if(faceRegisterDescriptors.length >= 1){
-    const enoughMsg = faceRegisterDescriptors.length < 3
-      ? 'আরও নির্ভরযোগ্য হওয়ার জন্য কমপক্ষে ৩টা ছবি দেওয়া ভালো, তবে এতেও রেজিস্টার করা যাবে।'
-      : 'রেজিস্টার করার জন্য প্রস্তুত।';
-    faceStatus.textContent = `✅ ${ok}টা ছবিতে মুখ শনাক্ত হয়েছে${fail ? `, ${fail}টায় হয়নি` : ''}। ${enoughMsg}`;
-    actionBtn.disabled = false;
-  } else {
-    faceStatus.textContent = '❌ কোনো ছবিতে মুখ শনাক্ত করা যায়নি — স্পষ্ট আলোয় তোলা অন্য ছবি দিয়ে আবার চেষ্টা করো';
-    actionBtn.disabled = true;
-  }
-}
-
+// ---------- FACE REGISTRATION (live camera, multi-frame while turning head) ----------
 function averageDescriptors(list){
   const len = list[0].length;
   const sum = new Float32Array(len);
@@ -772,11 +679,86 @@ function averageDescriptors(list){
   return sum;
 }
 
-async function handleRegisterClick(){
-  if(faceRegisterDescriptors.length === 0) return;
-  const actionBtn = document.getElementById('faceActionBtn');
+function beginRegistration(){
   const faceStatus = document.getElementById('faceStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+  const actionBtn = document.getElementById('faceActionBtn');
+  const retryBtn = document.getElementById('faceRetryBtn');
+
+  faceRegisterDescriptors = [];
+  videoWrap.classList.remove('show');
+  retryBtn.classList.remove('show');
+  faceStatus.textContent = 'প্রথমবার — ক্যামেরা দিয়ে মুখ রেজিস্টার করা হবে। বাটনে চাপো, তারপর মাথা আস্তে আস্তে বামে-ডানে ঘোরাও।';
+  actionBtn.style.display = 'block';
+  actionBtn.textContent = '🎥 ক্যামেরা চালু করে রেজিস্টার শুরু করো';
+  actionBtn.disabled = false;
+  actionBtn.onclick = startRegistrationCapture;
+}
+
+async function startRegistrationCapture(){
+  const faceStatus = document.getElementById('faceStatus');
+  const videoWrap = document.getElementById('faceVideoWrap');
+  const video = document.getElementById('faceVideo');
+  const actionBtn = document.getElementById('faceActionBtn');
+  const retryBtn = document.getElementById('faceRetryBtn');
+
   actionBtn.disabled = true;
+  actionBtn.style.display = 'none';
+  retryBtn.classList.remove('show');
+  videoWrap.classList.add('show');
+  faceStatus.textContent = 'ক্যামেরা চালু হচ্ছে...';
+
+  try{
+    faceStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    video.srcObject = faceStream;
+    await video.play();
+  }catch(e){
+    console.error(e);
+    faceStatus.textContent = 'ক্যামেরা এক্সেস দেওয়া হয়নি — পারমিশন দিয়ে আবার চেষ্টা করো';
+    videoWrap.classList.remove('show');
+    retryBtn.classList.add('show');
+    retryBtn.onclick = () => { retryBtn.classList.remove('show'); beginRegistration(); };
+    return;
+  }
+
+  faceRegisterDescriptors = [];
+  const targetFrames = 8;
+  const captureIntervalMs = 500;
+  const maxAttempts = 30; // ~15s safety cap
+  let attempts = 0;
+
+  faceStatus.textContent = `মাথা আস্তে আস্তে বামে-ডানে ঘোরাও... (০/${targetFrames})`;
+
+  clearInterval(faceVerifyLoopId);
+  faceVerifyLoopId = setInterval(async () => {
+    attempts++;
+    if(faceRegisterDescriptors.length >= targetFrames || attempts > maxAttempts){
+      clearInterval(faceVerifyLoopId);
+      stopFaceCamera();
+      videoWrap.classList.remove('show');
+      if(faceRegisterDescriptors.length >= 3){
+        finalizeRegistration();
+      } else {
+        faceStatus.textContent = `❌ পর্যাপ্ত মুখ শনাক্ত করা যায়নি (${faceRegisterDescriptors.length}টা পাওয়া গেছে, কমপক্ষে ৩টা লাগবে) — আলো ঠিকমতো আছে কিনা দেখে আবার চেষ্টা করো`;
+        retryBtn.classList.add('show');
+        retryBtn.onclick = () => { retryBtn.classList.remove('show'); beginRegistration(); };
+      }
+      return;
+    }
+    try{
+      const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks().withFaceDescriptor();
+      if(det && det.descriptor){
+        faceRegisterDescriptors.push(det.descriptor);
+        faceStatus.textContent = `মাথা আস্তে আস্তে বামে-ডানে ঘোরাও... (${faceRegisterDescriptors.length}/${targetFrames})`;
+      }
+    }catch(e){ /* ignore single-frame errors */ }
+  }, captureIntervalMs);
+}
+
+async function finalizeRegistration(){
+  const faceStatus = document.getElementById('faceStatus');
+  const retryBtn = document.getElementById('faceRetryBtn');
   faceStatus.textContent = 'সেভ করা হচ্ছে...';
 
   const avg = averageDescriptors(faceRegisterDescriptors);
@@ -791,7 +773,8 @@ async function handleRegisterClick(){
   }catch(e){
     console.error(e);
     faceStatus.textContent = '❌ রেজিস্টার করা যায়নি — আবার চেষ্টা করো';
-    actionBtn.disabled = false;
+    retryBtn.classList.add('show');
+    retryBtn.onclick = () => { retryBtn.classList.remove('show'); beginRegistration(); };
   }
 }
 
@@ -802,9 +785,7 @@ async function beginVerification(storedDescriptor){
   const video = document.getElementById('faceVideo');
   const actionBtn = document.getElementById('faceActionBtn');
   const retryBtn = document.getElementById('faceRetryBtn');
-  const uploadWrap = document.getElementById('faceUploadWrap');
 
-  uploadWrap.classList.remove('show');
   videoWrap.classList.add('show');
   actionBtn.style.display = 'none';
   retryBtn.classList.remove('show');
